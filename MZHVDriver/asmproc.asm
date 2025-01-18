@@ -1,0 +1,100 @@
+EXTERN VMEXIT_handler:PROC
+EXTERN VMCS_restore:PROC
+
+; Tested on i7-4710HQ
+; It supports the following Instruction Set Extensions
+; Intel® SSE4.1, Intel® SSE4.2, Intel® AVX2
+
+SAVE_REGISTERS MACRO
+  SUB RSP, 512
+  FXSAVE [RSP]
+  PUSH RAX
+  PUSH RBX
+  PUSH RCX
+  PUSH RDX
+  PUSH RBP
+  SUB RSP, 8 ;RSP is stored in VMCS
+  PUSH RSI
+  PUSH RDI
+  PUSH R8
+  PUSH R9
+  PUSH R10
+  PUSH R11
+  PUSH R12
+  PUSH R13
+  PUSH R14
+  PUSH R15
+ENDM
+
+RESTORE_REGISTERS MACRO
+  POP R15
+  POP R14
+  POP R13
+  POP R12
+  POP R11
+  POP R10
+  POP R9
+  POP R8
+  POP RDI
+  POP RSI
+  ADD RSP, 8 ;RSP is stored in VMCS
+  POP RBP
+  POP RDX
+  POP RCX
+  POP RBX
+  POP RAX
+  FXRSTOR [RSP]
+  ADD RSP, 512
+ENDM
+
+.code
+  ASMPROC_vmExitHandler PROC
+    SAVE_REGISTERS
+    MOV RCX, RSP
+    SUB RSP, 32
+    CALL VMEXIT_handler
+    ADD RSP, 32
+    OR AL, AL
+    JNZ ASMPROC_vmxoffHandler
+    RESTORE_REGISTERS
+    VMRESUME
+    INT 3
+  ASMPROC_vmExitHandler ENDP
+
+  ASMPROC_enterVmcs PROC
+    MOV RAX, 0000681Ch ; VMCS_GUEST_RSP
+    VMWRITE RAX, RSP
+    VMLAUNCH
+    MOV RAX, 0C0000001h ; STATUS_UNSUCCESSFUL
+    RET
+  ASMPROC_enterVmcs ENDP
+
+  ASMPROC_vmcsEntryPoint PROC
+    MOV RAX, 0
+    RET
+  ASMPROC_vmcsEntryPoint ENDP
+
+  ASMPROC_vmxoffHandler PROC
+    SUB RSP, 32
+    CALL VMCS_restore
+    ADD RSP, 32
+
+    MOV RAX, 0000681Ch ; VMCS_GUEST_RSP
+    MOV RBX, 0000681Eh ; VMCS_GUEST_RIP
+    VMREAD RCX, RAX ; GUEST_RSP
+    VMREAD RDX, RBX ; GUEST_RIP
+    MOV RAX, RSP
+    MOV RSP, RCX
+    PUSH RDX
+    MOV RCX, RSP
+    MOV RSP, RAX
+    PUSH RCX
+    ADD RSP, 8
+
+    VMXOFF
+    RESTORE_REGISTERS
+    MOV RSP, [RSP-648]
+    RET
+  ASMPROC_vmxoffHandler ENDP
+
+END
